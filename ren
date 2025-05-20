@@ -1,0 +1,200 @@
+#!/bin/bash
+
+# ren - Rename files using wildcards or regex patterns
+# Copyright (c) 2025 Rogerio O. Ferraz <rogerio.o.ferraz@gmail.com>
+
+# MIT License
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+set -euo pipefail
+
+SCRIPTNAME="$(basename ${BASH_SOURCE[0]})"
+
+USAGE="
+ren - Rename files using wildcards or regex patterns
+
+A command-line utility that renames files with a simple and intuitive
+syntax, using wildcards or regex patterns.
+
+Usage: ${SCRIPTNAME} [OPTIONS] pattern replacement
+
+ARGUMENTS:
+  pattern        : Existing filename pattern
+                   accepts wildcards by default,
+                   or regular expressions (see OPTIONS)
+
+  replacement    : New filename pattern
+                   Accepts positional substitution,
+                   like `#1`, `#2`, etc. (see EXAMPLES)
+OPTIONS:
+  -d, --dry-run  : Enable dry run mode (no changes are made)
+  -D, --debug    : Enable debug output
+  -E, --regex    : Use regular expression (regex) patterns
+  -h, --help     : Display usage information
+  -V, --version  : Show current version
+
+EXAMPLES:
+
+1. Rename using wildcards
+
+  $ ${SCRIPTNAME} 'Screenshot from * ??-??-??.png' 'Screenshot_#1_(#2#3:#4#5:#6#7).png'
+
+  Renames:
+  Screenshot from 2025-05-10 22-52-47.png -> Screenshot_2025-05-10_22:52:47.png
+
+2. Rename using regex:
+
+  $ ${SCRIPTNAME} -E '^img_([0-9]+)\.jpg$' 'image-#1.jpg'
+
+  Renames:
+  img_001.jpg -> image-001.jpg
+  img_999.jpg -> image-999.jpg
+
+3. Add prefix and suffix:
+
+  $ ${SCRIPTNAME} '*.txt' 'new-#1-ToDo.txt'
+
+  Renames:
+  file.txt -> new-file-ToDo.txt
+"
+
+# Defaults
+DRYRUN="OFF"
+MODE="glob"
+VERSION="${SCRIPTNAME} version 1.0.0"
+
+# Options
+while [ ${#} -gt 0 ] ; do
+  case "${1:-}" in
+    --debug|-D)
+      shift
+      set -x
+      ;;
+    --dry-run|-d)
+      DRYRUN="ON"
+      shift
+      ;;
+    --regex|-E)
+      MODE="regex"
+      shift
+      ;;
+    --help|-h)
+      echo "${USAGE}"
+      exit 0
+      ;;
+    --version|-V)
+      echo "${VERSION}"
+      exit 0
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+# Validate user input
+if [ "$#" -ne 2 ]; then
+  echo "error: invalid number of arguments" >&2
+  echo "See '${SCRIPTNAME} --help' for more information" >&2
+  exit 1
+fi
+
+# Get old and new file name patterns
+PATTERN="${1}"
+REPLACEMENT="${2}"
+
+# Convert glob pattern to regex pattern
+glob_to_regex() {
+    local glob="$1"
+    local regex="^"
+    local i=0
+    local c
+    while [[ $i -lt ${#glob} ]]; do
+        c="${glob:$i:1}"
+        case "$c" in
+            "*") regex+="(.*)";;
+            "?") regex+="(.)";;
+            ".") regex+="\\.";;
+            " ") regex+="[[:space:]]";;
+            "[") regex+="[";;
+            "]") regex+="]";;
+            *)   regex+="$c";;
+        esac
+        ((i++))
+    done
+    regex+="$"
+    printf '%s' "$regex"
+}
+
+shopt -s nullglob
+
+# Collect and deduplicate file list
+if [[ "$MODE" == "glob" ]]; then
+    REGEX=$(glob_to_regex "$PATTERN")
+    TEMPLATE="$REPLACEMENT"
+    FILES=( $PATTERN )
+else
+    REGEX="$PATTERN"
+    TEMPLATE="$REPLACEMENT"
+    FILES=( * )
+fi
+mapfile -t FILES < <(printf "%s\n" "${FILES[@]}" | awk '!seen[$0]++')
+
+# Preparation and Validation
+declare -A newnames_map
+declare -a oldnames
+declare -a newnames
+for FILE in "${FILES[@]}"; do
+    [[ -f "$FILE" ]] || continue
+    if [[ "$FILE" =~ $REGEX ]]; then
+      NEWNAME="${REPLACEMENT}"
+        for i in "${!BASH_REMATCH[@]}"; do
+            NEWNAME="${NEWNAME//\#$i/${BASH_REMATCH[$i]}}"
+        done
+
+        # Check for multiple source files mapping to same target
+        if [[ -n "${newnames_map["${NEWNAME}"]+1}" ]]; then
+            echo "error: multiple files to be renamed to '${NEWNAME}'" >&2
+            exit 2
+        fi
+
+        # Check for existing file that would be overwritten
+        if [[ -e "${NEWNAME}" && "${FILE}" != "${NEWNAME}" ]]; then
+            echo "error: target file '${NEWNAME}' already exists" >&2
+            exit 3
+        fi
+
+        newnames_map["$NEWNAME"]=1
+
+        oldnames+=("$FILE")
+        newnames+=("$NEWNAME")
+    fi
+done
+
+# Renaming
+for idx in "${!oldnames[@]}"; do
+    OLD="${oldnames[$idx]}"
+    NEW="${newnames[$idx]}"
+    if [[ ${DRYRUN} == "ON" ]]; then
+      echo mv -v -- "$OLD" "$NEW"
+    else
+      mv -v -- "$OLD" "$NEW"
+    fi
+done
