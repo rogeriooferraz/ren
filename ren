@@ -75,10 +75,17 @@ EXAMPLES:
   file.txt -> new-file-ToDo.txt
 "
 
+VERSION="
+${SCRIPTNAME} 1.0.1
+Copyright (c) 2025 Rogerio O. Ferraz <rogerio.o.ferraz@gmail.com>
+MIT License <https://github.com/rogeriooferraz/ren/blob/main/LICENSE>
+This is free and open source software.
+There is NO WARRANTY, to the extent permitted by law.
+"
+
 # Defaults
 DRYRUN="OFF"
 MODE="glob"
-VERSION="${SCRIPTNAME} version 1.0.0"
 
 # Options
 while [ ${#} -gt 0 ] ; do
