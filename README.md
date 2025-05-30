@@ -57,7 +57,7 @@ safely operation.
 
 ```
 cd /tmp
-git clone git@github.com:rogeriooferraz/ren.git
+git clone https://github.com/rogeriooferraz/ren.git
 sudo cp ren/ren /usr/local/bin/
 sudo chmod +x /usr/local/bin/ren
 rm -rf /tmp/ren
